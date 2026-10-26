@@ -1,0 +1,22 @@
+[package]
+name = "captions"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+name = "captions"
+crate-type = ["cdylib"]
+
+[dependencies]
+cea608-core = { path = "../core" }
+ffrwd-node = { git = "https://github.com/imbcmdth/ffrwd-node", tag = "v0.2.0" }
+ffrwd-nal = { git = "https://github.com/imbcmdth/ffrwd-nal", tag = "v0.1.1" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+# A line on stderr for each live command, with the frame it went into: for
+# measuring where commands land, never for a broadcast.
+trace = []

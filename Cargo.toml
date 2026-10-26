@@ -1,0 +1,17 @@
+[workspace]
+# `captions` is the wasm module this package ships; it builds into
+# target/wasm32-wasip2/release/, which is where the package's lib SQL names
+# it. `core` is everything the module does that is not the node: the
+# commands, the roll-up writer, the cc_data packing, the SEI splice and the
+# presentation order. It ships nothing of its own, and the host-side tests
+# live there.
+members = [
+    "core",
+    "captions",
+]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

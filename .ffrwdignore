@@ -1,0 +1,13 @@
+# Build output, including whatever `cargo test` leaves behind. The one file
+# the lib SQL names is pulled back in by the manifest's closure; the rest of
+# the directory stays out of the archive.
+target/
+
+# Local development state, not package content.
+ffrwd.lock
+
+# The Rust sources the module is built from; the module is what ships.
+Cargo.lock
+Cargo.toml
+core/
+captions/
