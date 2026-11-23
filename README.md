@@ -27,7 +27,7 @@ The picture is not decoded or encoded again: the file's own H.264 is
 copied into the module and out to the new file, one SEI per access unit
 richer.
 
-Each row is a cue: `text`, `start_t` and `end_t`. A row with no `final`
+Each row is a cue: `text`, `start_t` and `end_t`, and optionally `final` and `voice`. A row with no `final`
 field is a whole cue, as whisper writes them, and goes up as one at its
 `start_t`. Rows with `final` are a streaming transcript, as parakeet
 writes them: the utterance so far, again each time it grows, and once
@@ -49,6 +49,34 @@ SELECT ffrwd.cea608.captions(f.video[1],
 
 The rows are paired with the packets by time, so the captions land on the
 frames their words are spoken over.
+
+### Speakers in one column
+
+A cue may carry a `voice`, the name of its speaker. One column of cues can
+then hold every speaker of a program:
+
+```pgsql
+SELECT ffrwd.cea608.captions(s.video[1], cues => cues.rows, prefix => '>>')
+```
+
+A cue starts a new speaker when its voice differs from the voice of the cue
+before it, or when it arrives with nothing on screen. A new speaker's row
+starts with `prefix`, a space, the voice in capitals, a colon and the words:
+
+```
+>> MANGO: ONE MORE
+>> REX: GO ON
+```
+
+A voice that continues does not repeat its name. A new utterance of the
+same voice starts a row with `prefix` alone, as `>> RIGHT`, and a growing
+utterance re-sent with its voice is named once. A cue without a voice is
+captioned as it is without voices, and a voice after such a cue is named
+again. With no `prefix` the row starts with the name. A name is shown in at
+most 12 characters, so that the marker, the name and the colon leave most
+of a 32-column row to the words; longer names are cut and spaces at the cut
+are dropped. `cues2` and `prefix2` follow the same rule on their own, each
+keeping the voice of its own previous cue.
 
 ## Live captions
 

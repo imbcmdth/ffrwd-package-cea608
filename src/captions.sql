@@ -22,6 +22,14 @@
 -- utterance as it grows sends only the words it added, each once it is
 -- whole and at the time it was said, and a finished utterance stays until
 -- the next. Two arguments are two speakers, each starting rows of its own.
+--
+-- A cue may carry a `voice`, the speaker's name. One column of cues then
+-- holds every speaker: a cue whose voice differs from the cue before it, or
+-- that arrives when nothing is on screen, starts a row with `prefix`, the
+-- voice in capitals and a colon, as in `>> MANGO: ONE MORE`. A voice that
+-- continues does not repeat its name, and a cue without a voice is as it is
+-- without voices. A name is clipped to 12 characters. `cues2` follows the
+-- rule on its own, with `prefix2`.
 -- The rows are paired with the packets by time, which is the way for a
 -- file:
 --

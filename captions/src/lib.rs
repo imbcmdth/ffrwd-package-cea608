@@ -40,7 +40,7 @@ const CODECS: &[&str] = &["h264", "hevc"];
 /// The rows arguments, in the order of their prefixes.
 const TRACKS: [&str; 2] = ["cues", "cues2"];
 
-const CUE_SCHEMA: &str = r#"{"type":"object","properties":{"text":{"type":"string"},"start_t":{"type":"number"},"end_t":{"type":"number"}},"required":["text","start_t","end_t"]}"#;
+const CUE_SCHEMA: &str = r#"{"type":"object","properties":{"text":{"type":"string"},"start_t":{"type":"number"},"end_t":{"type":"number"},"voice":{"type":"string"}},"required":["text","start_t","end_t"]}"#;
 
 const PARAMS_SCHEMA: &str = r#"{
   "type": "object",
@@ -538,8 +538,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_packet_leaves_once_with_its_captions_and_rows_land_on_time() {
+    /// The text that went out over 90 frames at 30 fps for `rows`, which
+    /// all arrive on the first tick, with the pts of its first character.
+    fn captioned(rows: &[&[u8]]) -> (i64, String) {
         let mut h = Harness::<Inserter>::new(
             r#"{"prefix": ">>"}"#,
             vec![
@@ -562,11 +563,9 @@ mod tests {
                 },
             );
             if i == 0 {
-                tick = tick.message(
-                    1,
-                    1000,
-                    br#"{"text":"GOOD CALL","start_t":1.0,"end_t":1.5,"_arg":"cues"}"#,
-                );
+                for row in rows {
+                    tick = tick.message(1, 1000, row);
+                }
             }
             if i == 89 {
                 tick = tick.last();
@@ -588,15 +587,30 @@ mod tests {
         }
         assert_eq!(left, 90);
         let first_text = texts.first().expect("text went out");
-        assert!(
-            first_text.0 >= 90000,
-            "nothing before the row's time: {first_text:?}"
-        );
+        let first = first_text.0;
         let text: String = texts
             .iter()
             .flat_map(|(_, a, b)| [*a as char, *b as char])
-            .filter(|c| *c != '\0')
+            .filter(|c| *c != ' ')
             .collect();
+        (first, text)
+    }
+
+    #[test]
+    fn every_packet_leaves_once_with_its_captions_and_rows_land_on_time() {
+        let (first, text) =
+            captioned(&[br#"{"text":"GOOD CALL","start_t":1.0,"end_t":1.5,"_arg":"cues"}"#]);
+        assert!(first >= 90000, "nothing before the row's time: {first}");
         assert_eq!(text, ">> GOOD CALL");
+    }
+
+    #[test]
+    fn two_voices_in_one_column_are_named_where_the_speaker_changes() {
+        let (_, text) = captioned(&[
+            br#"{"text":"ONE MORE","start_t":0.5,"end_t":0.8,"voice":"Mango","_arg":"cues"}"#,
+            br#"{"text":"GO ON","start_t":1.5,"end_t":1.8,"voice":"Rex","_arg":"cues"}"#,
+            br#"{"text":"RIGHT","start_t":2.2,"end_t":2.4,"voice":"Rex","_arg":"cues"}"#,
+        ]);
+        assert_eq!(text, ">> MANGO: ONE MORE>> REX: GO ON>> RIGHT");
     }
 }

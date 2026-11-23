@@ -173,6 +173,7 @@ mod tests {
                 start_t: 1.0,
                 end_t: Some(1.5),
                 finished: None,
+                voice: None,
             },
         );
         // A new row starts its control codes early, so that its first

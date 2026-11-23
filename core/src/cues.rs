@@ -23,6 +23,10 @@ use serde::Deserialize;
 
 use crate::captioner::{Captioner, PAIRS_PER_SECOND, ROW_START_PAIRS};
 
+/// The most characters of a voice's name a row shows. A row is 32 columns,
+/// and the marker, its space and the colon take up to five of them.
+pub const MAX_NAME_CHARS: usize = 12;
+
 /// How long a new row's control codes take to send.
 const ROW_START_SECONDS: f64 = ROW_START_PAIRS as f64 / PAIRS_PER_SECOND;
 
@@ -36,6 +40,8 @@ pub struct Row {
     pub end_t: Option<f64>,
     #[serde(default, rename = "final")]
     pub finished: Option<bool>,
+    #[serde(default)]
+    pub voice: Option<String>,
 }
 
 /// What a row does to the captions.
@@ -144,6 +150,7 @@ pub struct Timed {
     pub at: f64,
     pub track: usize,
     pub edit: Edit,
+    voice: Option<String>,
     seq: u64,
 }
 
@@ -175,7 +182,7 @@ impl Ord for Timed {
 /// Every rows argument's edits, in the order of their times.
 #[derive(Debug, Default)]
 pub struct Schedule {
-    tracks: Vec<(Track, Option<String>)>,
+    tracks: Vec<(Track, Option<String>, Option<String>)>,
     waiting: BinaryHeap<Timed>,
     seq: u64,
 }
@@ -187,7 +194,7 @@ impl Schedule {
         Schedule {
             tracks: prefixes
                 .into_iter()
-                .map(|prefix| (Track::default(), prefix))
+                .map(|prefix| (Track::default(), prefix, None))
                 .collect(),
             ..Schedule::default()
         }
@@ -195,9 +202,10 @@ impl Schedule {
 
     /// One row of track `track`.
     pub fn row(&mut self, track: usize, row: &Row) {
-        let Some((follow, _)) = self.tracks.get_mut(track) else {
+        let Some((follow, _, _)) = self.tracks.get_mut(track) else {
             return;
         };
+        let voice = row.voice.as_deref().and_then(name_of);
         for (at, edit) in follow.row(row) {
             // A new row takes its roll-up, carriage return and preamble
             // before its first letter, so it starts that much early and the
@@ -211,6 +219,7 @@ impl Schedule {
                 at,
                 track,
                 edit,
+                voice: voice.clone(),
                 seq: self.seq,
             });
         }
@@ -231,27 +240,59 @@ impl Schedule {
             let Some(timed) = self.waiting.pop() else {
                 break;
             };
-            let prefix = self.tracks[timed.track].1.as_deref();
-            apply(captioner, timed.track, prefix, timed.edit);
+            let (_, prefix, last) = &mut self.tracks[timed.track];
+            apply(captioner, timed.track, prefix.as_deref(), last, timed);
         }
     }
 }
 
-fn apply(captioner: &mut Captioner, track: usize, prefix: Option<&str>, edit: Edit) {
+/// A voice as 608 shows it: capitals, spaces collapsed, at most
+/// [`MAX_NAME_CHARS`] characters. A voice with nothing in it has no name.
+fn name_of(voice: &str) -> Option<String> {
+    let name: String = voice
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_uppercase()
+        .chars()
+        .take(MAX_NAME_CHARS)
+        .collect();
+    let name = name.trim_end().to_owned();
+    (!name.is_empty()).then_some(name)
+}
+
+fn apply(
+    captioner: &mut Captioner,
+    track: usize,
+    prefix: Option<&str>,
+    last: &mut Option<String>,
+    timed: Timed,
+) {
+    let Timed { edit, voice, .. } = timed;
     let words = match edit {
         Edit::Grow(words) if captioner.owner() == Some(Some(track)) => {
             captioner.say(&words);
+            *last = voice;
             return;
         }
         // A new utterance, or more of one whose row is someone else's by now
         // or was cleared: the words start a row of their own.
         Edit::Utterance(words) | Edit::Grow(words) => words,
     };
+    let speaker_changed = voice.is_some() && (*last != voice || captioner.owner().is_none());
     captioner.start_row_for(Some(track));
-    match prefix {
-        Some(prefix) => captioner.say(&format!("{prefix} {words}")),
-        None => captioner.say(&words),
+    let mut row = String::new();
+    if let Some(prefix) = prefix {
+        row.push_str(prefix);
+        row.push(' ');
     }
+    if let (true, Some(name)) = (speaker_changed, &voice) {
+        row.push_str(name);
+        row.push_str(": ");
+    }
+    row.push_str(&words);
+    captioner.say(&row);
+    *last = voice;
 }
 
 #[cfg(test)]
@@ -265,6 +306,14 @@ mod tests {
             start_t,
             end_t: Some(end_t),
             finished,
+            voice: None,
+        }
+    }
+
+    fn voiced(voice: &str, text: &str, start_t: f64, end_t: f64, finished: bool) -> Row {
+        Row {
+            voice: Some(voice.into()),
+            ..row(text, start_t, end_t, Some(finished))
         }
     }
 
@@ -410,5 +459,75 @@ mod tests {
         s.row(1, &row("yes", 0.6, 0.6, Some(true)));
         s.row(0, &row("we go now and win", 0.0, 0.9, Some(true)));
         assert_eq!(screen(&mut s, 2), "|>> we go now and|<< yes|>> win");
+    }
+
+    #[test]
+    fn a_change_of_voice_starts_a_row_that_names_the_speaker() {
+        let mut s = Schedule::new(vec![Some(">>".into())]);
+        s.row(0, &voiced("Mango", "ONE MORE", 0.0, 0.5, true));
+        s.row(0, &voiced("Rex", "GO ON", 2.0, 2.5, true));
+        assert_eq!(screen(&mut s, 3), "|>> MANGO: ONE MORE|>> REX: GO ON");
+    }
+
+    #[test]
+    fn a_voice_that_continues_does_not_repeat_its_name() {
+        let mut s = Schedule::new(vec![Some(">>".into())]);
+        s.row(0, &voiced("Mango", "ONE MORE", 0.0, 0.5, true));
+        s.row(0, &voiced("Mango", "AND AGAIN", 2.0, 2.5, true));
+        assert_eq!(screen(&mut s, 3), "|>> MANGO: ONE MORE|>> AND AGAIN");
+    }
+
+    #[test]
+    fn a_cue_without_a_voice_is_as_before() {
+        let mut s = Schedule::new(vec![Some(">>".into())]);
+        s.row(0, &row("ONE MORE", 0.0, 0.5, None));
+        s.row(0, &row("AND AGAIN", 2.0, 2.5, None));
+        assert_eq!(screen(&mut s, 3), "|>> ONE MORE|>> AND AGAIN");
+        let mut s = Schedule::new(vec![None]);
+        s.row(0, &voiced("Mango", "HI", 0.0, 0.5, true));
+        assert_eq!(screen(&mut s, 2), "|MANGO: HI");
+    }
+
+    #[test]
+    fn a_voice_after_a_cue_without_one_is_named_again() {
+        let mut s = Schedule::new(vec![Some(">>".into())]);
+        s.row(0, &voiced("Mango", "A", 0.0, 0.5, true));
+        s.row(0, &row("B", 2.0, 2.5, None));
+        s.row(0, &voiced("Mango", "C", 4.0, 4.5, true));
+        assert_eq!(screen(&mut s, 4), "|>> MANGO: A|>> B|>> MANGO: C");
+    }
+
+    #[test]
+    fn a_growing_utterance_resent_with_its_voice_names_it_once() {
+        let mut s = Schedule::new(vec![Some(">>".into())]);
+        s.row(0, &voiced("Mango", "WE GO", 0.0, 0.3, false));
+        s.row(0, &voiced("Mango", "WE GO NOW", 0.0, 0.6, false));
+        s.row(0, &voiced("Mango", "WE GO NOW", 0.0, 0.6, true));
+        assert_eq!(screen(&mut s, 2), "|>> MANGO: WE GO NOW");
+    }
+
+    #[test]
+    fn a_voice_is_tracked_for_each_rows_argument() {
+        let mut s = Schedule::new(vec![Some(">>".into()), Some("<<".into())]);
+        s.row(0, &voiced("Mango", "LEFT", 0.0, 0.2, true));
+        s.row(1, &voiced("Mango", "RIGHT", 1.0, 1.2, true));
+        assert_eq!(screen(&mut s, 3), "|>> MANGO: LEFT|<< MANGO: RIGHT");
+    }
+
+    #[test]
+    fn a_long_name_is_clipped() {
+        assert_eq!(
+            name_of("Bartholomew the Third").as_deref(),
+            Some("BARTHOLOMEW")
+        );
+        assert_eq!(
+            name_of("Abcdefghijkl-mnop").as_deref(),
+            Some("ABCDEFGHIJKL")
+        );
+        assert_eq!(name_of("  mango   rex "), Some("MANGO REX".into()));
+        assert_eq!(name_of("   "), None);
+        let mut s = Schedule::new(vec![Some(">>".into())]);
+        s.row(0, &voiced("Bartholomew the Third", "HI", 0.0, 0.5, true));
+        assert_eq!(screen(&mut s, 2), "|>> BARTHOLOMEW: HI");
     }
 }
