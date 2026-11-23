@@ -282,7 +282,10 @@ fn apply(
     let speaker_changed = voice.is_some() && (*last != voice || captioner.owner().is_none());
     captioner.start_row_for(Some(track));
     let mut row = String::new();
-    if let Some(prefix) = prefix {
+    // With voices the marker means a change of speaker, as it does in live
+    // captions: the same speaker's next utterance starts its row bare.
+    let marked = voice.is_none() || speaker_changed;
+    if let (true, Some(prefix)) = (marked, prefix) {
         row.push_str(prefix);
         row.push(' ');
     }
@@ -474,7 +477,7 @@ mod tests {
         let mut s = Schedule::new(vec![Some(">>".into())]);
         s.row(0, &voiced("Mango", "ONE MORE", 0.0, 0.5, true));
         s.row(0, &voiced("Mango", "AND AGAIN", 2.0, 2.5, true));
-        assert_eq!(screen(&mut s, 3), "|>> MANGO: ONE MORE|>> AND AGAIN");
+        assert_eq!(screen(&mut s, 3), "|>> MANGO: ONE MORE|AND AGAIN");
     }
 
     #[test]

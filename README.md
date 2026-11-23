@@ -68,8 +68,9 @@ starts with `prefix`, a space, the voice in capitals, a colon and the words:
 >> REX: GO ON
 ```
 
-A voice that continues does not repeat its name. A new utterance of the
-same voice starts a row with `prefix` alone, as `>> RIGHT`, and a growing
+A voice that continues does not repeat its name or the marker: a new
+utterance of the same voice starts a row of its own with the words alone,
+since in live captions `>>` marks a change of speaker, and a growing
 utterance re-sent with its voice is named once. A cue without a voice is
 captioned as it is without voices, and a voice after such a cue is named
 again. With no `prefix` the row starts with the name. A name is shown in at

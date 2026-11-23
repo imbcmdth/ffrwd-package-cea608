@@ -46,7 +46,7 @@ const PARAMS_SCHEMA: &str = r#"{
   "type": "object",
   "properties": {
     "port": {"type": "integer", "minimum": 1, "maximum": 65535, "description": "Loopback TCP port to take live commands on; none when left out."},
-    "prefix": {"type": "string", "description": "Put at the start of each new utterance of `cues`, such as `>>`."},
+    "prefix": {"type": "string", "description": "Put at the start of each new utterance of `cues`, such as `>>`; where cues carry a `voice`, at the start of each change of speaker, before the name."},
     "prefix2": {"type": "string", "description": "The same for `cues2`."},
     "roll_up": {"type": "integer", "minimum": 2, "maximum": 4, "default": 2},
     "channel": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1, "description": "CC1 to CC4."}
@@ -611,6 +611,6 @@ mod tests {
             br#"{"text":"GO ON","start_t":1.5,"end_t":1.8,"voice":"Rex","_arg":"cues"}"#,
             br#"{"text":"RIGHT","start_t":2.2,"end_t":2.4,"voice":"Rex","_arg":"cues"}"#,
         ]);
-        assert_eq!(text, ">> MANGO: ONE MORE>> REX: GO ON>> RIGHT");
+        assert_eq!(text, ">> MANGO: ONE MORE>> REX: GO ONRIGHT");
     }
 }
