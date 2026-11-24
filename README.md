@@ -79,6 +79,51 @@ of a 32-column row to the words; longer names are cut and spaces at the cut
 are dropped. `cues2` and `prefix2` follow the same rule on their own, each
 keeping the voice of its own previous cue.
 
+### How long a frame waits for its rows
+
+A frame goes out once the rows for its time are in hand. The host hands
+the module a frame when the rows' producer has said it is 2 s past the
+frame, by a row or by a progress mark, so a row reaches the module ahead
+of the frame it starts on. A producer that stalls would hold the picture
+with it, and a push to a service that closes a connection gone quiet
+would be cut off. `wait_s` bounds the wait: once the picture `wait_s`
+seconds past a frame has arrived, the frame goes out with the rows in
+hand. A row that comes after its frame goes out at the next frame.
+
+The default, 5 s, is past the lag of the producers a live push reads,
+so it cuts short only one that stalled. A text track read back with
+ffrwd/moq's `subscribe` runs up to 4 s behind its picture: its publisher
+holds the track 3 s behind and cuts a sample at least once a second. A
+new row takes 0.2 s of control codes before its first letter, so at 5 s
+every such row is in hand before its frame, with 0.8 s to spare.
+parakeet's `transcribe` writes its rows within 1.3 s of the words, and
+the module waits about 2 s for them, as before.
+
+The bound counts the picture as it reaches the module. When the picture
+and the rows reach it over one connection from another process, as a
+broadcast read with `subscribe` in a sidecar of its own does, that
+connection carries them in time order: the picture comes no further
+ahead than the rows' progress, so the wait is as long as the producer
+takes to move its progress on and the bound does not come into it.
+`subscribe` reports a text track's progress at every sample and while
+its publisher is away for that reason.
+
+0 waits for the rows however long they take. A file captioned from a
+producer slower than its picture wants it: whisper's `transcribe` hears
+30 s at a time, so its rows come up to 30 s after the picture of their
+time, and on a file the picture can run further ahead than that. A live
+query whose rows come later than `wait_s` behind the picture, as
+whisper's do, is refused by ffrwd's compiler as `LIVE_LEAD`; give it a
+longer `wait_s`.
+
+A row that arrives more than 10 s behind the frame last captioned is
+dropped, and so is row text that would wait behind more than 10 s of
+captions already queued, each with a line on stderr when the drops start
+and when they end. A producer that stalls and then hands over everything
+it held at once would otherwise queue minutes of 608 that go out long
+after the picture they belong to. The summary row counts both
+(`rows_dropped`, `edits_dropped`).
+
 ## Live captions
 
 For a live broadcast, the text comes from a process beside the query over a
@@ -158,15 +203,17 @@ order. That is two frames for `libx264` and `h264_nvenc` at their defaults
 and none for a stream without B-frames.
 
 At the end of the stream the module writes one summary row (frames
-captioned, bytes added, commands and rows read, the time spent and how long
-packets were held) and the same as a line on stderr.
+captioned, bytes added, commands and rows read, rows and edits dropped, the
+time spent and how long packets were held) and the same as a line on
+stderr.
 
 ## Exports
 
 - `captions(v video_stream, cues cue[] DEFAULT NULL, cues2 cue[] DEFAULT
   NULL, port number DEFAULT NULL, prefix text DEFAULT NULL, prefix2 text
-  DEFAULT NULL, roll_up number DEFAULT 2, channel number DEFAULT 1)`
-  returns `packets`: `v`'s own packets with CEA-608 captions in them.
+  DEFAULT NULL, roll_up number DEFAULT 2, channel number DEFAULT 1,
+  wait_s number DEFAULT 5)` returns `packets`: `v`'s own packets with
+  CEA-608 captions in them.
 
 ## Building
 

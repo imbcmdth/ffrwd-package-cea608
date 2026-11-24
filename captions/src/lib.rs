@@ -49,7 +49,8 @@ const PARAMS_SCHEMA: &str = r#"{
     "prefix": {"type": "string", "description": "Put at the start of each new utterance of `cues`, such as `>>`; where cues carry a `voice`, at the start of each change of speaker, before the name."},
     "prefix2": {"type": "string", "description": "The same for `cues2`."},
     "roll_up": {"type": "integer", "minimum": 2, "maximum": 4, "default": 2},
-    "channel": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1, "description": "CC1 to CC4."}
+    "channel": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1, "description": "CC1 to CC4."},
+    "wait_s": {"type": "number", "minimum": 0, "default": 5, "description": "The longest a frame waits for the rows of `cues` and `cues2`, in seconds of the stream past its own time: once the picture that far on has arrived, the frame goes out with the rows in hand. 0 waits for the rows however long they take, as a file captioned from rows slower than its picture wants."}
   },
   "additionalProperties": false
 }"#;
@@ -58,6 +59,11 @@ const PARAMS_SCHEMA: &str = r#"{
 /// own times, and the earlier they are in hand the closer to those times
 /// they go out.
 const AHEAD_SECONDS: f64 = 2.0;
+
+/// The longest a frame waits for its rows by default, in seconds of the
+/// stream past the frame: the `wait_s` param's default. See the README,
+/// "How long a frame waits for its rows".
+const WAIT_SECONDS: f64 = 5.0;
 
 /// The deepest reorder H.264 and HEVC allow, in frames: the most the hold
 /// can grow to, and so the latency the output declares.
@@ -70,6 +76,12 @@ struct Params {
     prefix2: Option<String>,
     roll_up: u8,
     channel: u8,
+    #[serde(default = "wait_seconds")]
+    wait_s: f64,
+}
+
+fn wait_seconds() -> f64 {
+    WAIT_SECONDS
 }
 
 struct Inserter {
@@ -106,6 +118,10 @@ struct Stats {
     commands: u64,
     edits_unsent: usize,
     pairs_unsent: usize,
+    /// Rows dropped for arriving more than `MAX_LATE_SECONDS` behind the
+    /// picture, and edits dropped behind that much text already waiting.
+    rows_dropped: u64,
+    edits_dropped: u64,
     /// Wall time spent in `process`, in seconds.
     process_seconds: f64,
     /// The longest one `process` call took, in milliseconds.
@@ -303,17 +319,19 @@ impl Node for Inserter {
     const PARAMS_SCHEMA: &'static str = PARAMS_SCHEMA;
     type Params = Params;
 
-    fn shape(_params: &Params, bound: &Bound) -> Result<Shape> {
+    fn shape(params: &Params, bound: &Bound) -> Result<Shape> {
         let mut shape = Shape::new().input(Input::packets("v").clock().codecs(CODECS));
         for track in TRACKS {
-            shape = shape.input(
-                Input::rows(track)
-                    .optional()
-                    .interval()
-                    .ahead(AHEAD_SECONDS)
-                    .state()
-                    .schema_json(CUE_SCHEMA),
-            );
+            let mut input = Input::rows(track)
+                .optional()
+                .interval()
+                .ahead(AHEAD_SECONDS)
+                .state()
+                .schema_json(CUE_SCHEMA);
+            if params.wait_s > 0.0 {
+                input = input.latency(params.wait_s);
+            }
+            shape = shape.input(input);
         }
         // No format of its own: the packets leave in the codec, time base
         // and extradata they came in.
@@ -387,7 +405,7 @@ impl Node for Inserter {
         match row.row::<Row>() {
             Ok(cue) => {
                 self.stats.rows += 1;
-                self.captions.row(track, &cue);
+                self.captions.row(track, &cue, row.seconds);
             }
             // The rows are a transcript, and one that will not read is one
             // line of captions lost, not a reason to end the broadcast.
@@ -453,6 +471,7 @@ impl Node for Inserter {
             let (edits, pairs) = self.captions.unsent();
             self.stats.edits_unsent = edits;
             self.stats.pairs_unsent = pairs;
+            (self.stats.rows_dropped, self.stats.edits_dropped) = self.captions.dropped();
             self.stats.out_of_order = self.order.out_of_order();
             self.stats.reorder_depth = self.order.depth();
             if self.stats.released > 0 {
@@ -522,6 +541,34 @@ mod tests {
         let bound = Bound::new(&["v"]).rate("v", Rational::new(60, 1));
         let shape = Runner::<Inserter>::shape("{}", &bound).unwrap();
         assert!((shape.outputs[0].latency - 16.0 / 60.0).abs() < 1e-9);
+    }
+
+    fn waits(params: &str) -> Vec<Option<f64>> {
+        let shape = Runner::<Inserter>::shape(params, &["v".to_owned()]).expect("a shape");
+        TRACKS
+            .iter()
+            .map(
+                |track| match &shape.find_input(track).expect("a rows input").pairing {
+                    ffrwd_node::Pairing::Interval(interval) => {
+                        assert_eq!(interval.ahead, AHEAD_SECONDS);
+                        interval.latency
+                    }
+                    other => panic!("{track} is paired {other:?}"),
+                },
+            )
+            .collect()
+    }
+
+    #[test]
+    fn a_frame_waits_for_its_rows_five_seconds_at_most_unless_told_otherwise() {
+        assert_eq!(waits("{}"), vec![Some(WAIT_SECONDS); 2]);
+        assert_eq!(waits(r#"{"wait_s": 40}"#), vec![Some(40.0); 2]);
+        assert_eq!(
+            waits(r#"{"wait_s": 0}"#),
+            vec![None; 2],
+            "0 waits however long"
+        );
+        assert!(Runner::<Inserter>::shape(r#"{"wait_s": -1}"#, &["v".to_owned()]).is_err());
     }
 
     #[test]

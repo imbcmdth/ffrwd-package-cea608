@@ -234,15 +234,23 @@ impl Schedule {
         self.waiting.is_empty()
     }
 
-    /// Applies every edit due by `t` seconds.
-    pub fn apply_due(&mut self, t: f64, captioner: &mut Captioner) {
+    /// Applies every edit due by `t` seconds, and drops each one that would
+    /// wait behind more than `most` seconds of text already queued. Returns
+    /// how many it dropped.
+    pub fn apply_due(&mut self, t: f64, captioner: &mut Captioner, most: f64) -> u64 {
+        let mut dropped = 0;
         while self.waiting.peek().is_some_and(|next| next.at <= t) {
             let Some(timed) = self.waiting.pop() else {
                 break;
             };
+            if captioner.backlog_seconds() > most {
+                dropped += 1;
+                continue;
+            }
             let (_, prefix, last) = &mut self.tracks[timed.track];
             apply(captioner, timed.track, prefix.as_deref(), last, timed);
         }
+        dropped
     }
 }
 
@@ -327,7 +335,7 @@ mod tests {
     /// The text a schedule's edits put on screen, `|` for each new row.
     fn screen(s: &mut Schedule, rows: u8) -> String {
         let mut c = Captioner::new(Service::cc(1).unwrap(), rows);
-        s.apply_due(f64::MAX, &mut c);
+        s.apply_due(f64::MAX, &mut c, f64::MAX);
         let mut text = String::new();
         let mut state = cea608_types::Cea608State::default();
         while let Some(pair) = c.next_pair() {
@@ -450,7 +458,7 @@ mod tests {
         s.row(1, &row("right", 0.5, 0.5, Some(true)));
         s.row(0, &row("left one two three", 0.8, 1.0, Some(true)));
         let mut c = Captioner::new(Service::cc(1).unwrap(), 3);
-        s.apply_due(0.5 - ROW_START_SECONDS - 0.01, &mut c);
+        s.apply_due(0.5 - ROW_START_SECONDS - 0.01, &mut c, f64::MAX);
         assert_eq!(s.len(), 2);
         assert_eq!(screen(&mut s, 3), "|<< right|>> left one two three");
     }
