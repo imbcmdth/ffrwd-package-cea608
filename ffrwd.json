@@ -1,6 +1,6 @@
 {
   "name": "ffrwd/cea608",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "CEA-608 roll-up captions in an H.264 or HEVC stream's own access units, as the ATSC A/53 SEI that YouTube, Twitch and players read: from rows of speech for a file, or live commands on a loopback socket for a broadcast.",
   "license": "MIT",
   "homepage": "https://github.com/imbcmdth/ffrwd-package-cea608",
