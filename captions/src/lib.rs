@@ -50,7 +50,7 @@ const PARAMS_SCHEMA: &str = r#"{
     "prefix2": {"type": "string", "description": "The same for `cues2`."},
     "roll_up": {"type": "integer", "minimum": 2, "maximum": 4, "default": 2},
     "channel": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1, "description": "CC1 to CC4."},
-    "wait_s": {"type": "number", "minimum": 0, "default": 5, "description": "The longest a frame waits for the rows of `cues` and `cues2`, in seconds of the stream past its own time: once the picture that far on has arrived, the frame goes out with the rows in hand. 0 waits for the rows however long they take, as a file captioned from rows slower than its picture wants."}
+    "wait_s": {"type": "number", "minimum": 0, "default": 0, "description": "The longest a frame waits for the rows of `cues` and `cues2`, in seconds of the stream past its own time: once the picture that far on has arrived, the frame goes out with the rows in hand. 0, the default, waits for the rows however long they take, as a file captioned from rows slower than its picture wants; 5 covers a text track read back with ffrwd/moq's subscribe."}
   },
   "additionalProperties": false
 }"#;
@@ -61,9 +61,9 @@ const PARAMS_SCHEMA: &str = r#"{
 const AHEAD_SECONDS: f64 = 2.0;
 
 /// The longest a frame waits for its rows by default, in seconds of the
-/// stream past the frame: the `wait_s` param's default. See the README,
-/// "How long a frame waits for its rows".
-const WAIT_SECONDS: f64 = 5.0;
+/// stream past the frame: the `wait_s` param's default, 0 for however long
+/// they take. See the README, "How long a frame waits for its rows".
+const WAIT_SECONDS: f64 = 0.0;
 
 /// The deepest reorder H.264 and HEVC allow, in frames: the most the hold
 /// can grow to, and so the latency the output declares.
@@ -561,7 +561,7 @@ mod tests {
 
     #[test]
     fn a_frame_waits_for_its_rows_five_seconds_at_most_unless_told_otherwise() {
-        assert_eq!(waits("{}"), vec![Some(WAIT_SECONDS); 2]);
+        assert_eq!(waits("{}"), waits(r#"{"wait_s": 0}"#));
         assert_eq!(waits(r#"{"wait_s": 40}"#), vec![Some(40.0); 2]);
         assert_eq!(
             waits(r#"{"wait_s": 0}"#),

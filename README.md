@@ -90,8 +90,9 @@ would be cut off. `wait_s` bounds the wait: once the picture `wait_s`
 seconds past a frame has arrived, the frame goes out with the rows in
 hand. A row that comes after its frame goes out at the next frame.
 
-The default, 5 s, is past the lag of the producers a live push reads,
-so it cuts short only one that stalled. A text track read back with
+The default, 0, waits for the rows however long they take. 5 s is past
+the lag of the producers a live push reads, so it cuts short only one
+that stalled. A text track read back with
 ffrwd/moq's `subscribe` runs up to 4 s behind its picture: its publisher
 holds the track 3 s behind and cuts a sample at least once a second. A
 new row takes 0.2 s of control codes before its first letter, so at 5 s
@@ -108,13 +109,13 @@ takes to move its progress on and the bound does not come into it.
 `subscribe` reports a text track's progress at every sample and while
 its publisher is away for that reason.
 
-0 waits for the rows however long they take. A file captioned from a
-producer slower than its picture wants it: whisper's `transcribe` hears
+0 is what a file captioned from a producer slower than its picture
+wants: whisper's `transcribe` hears
 30 s at a time, so its rows come up to 30 s after the picture of their
 time, and on a file the picture can run further ahead than that. A live
-query whose rows come later than `wait_s` behind the picture, as
-whisper's do, is refused by ffrwd's compiler as `LIVE_LEAD`; give it a
-longer `wait_s`.
+query that sets a `wait_s` shorter than its rows take, as 5 s would be
+for whisper's, is refused by ffrwd's compiler as `LIVE_LEAD`; give it a
+longer one, or 0.
 
 A row that arrives more than 10 s behind the frame last captioned is
 dropped, and so is row text that would wait behind more than 10 s of
@@ -212,7 +213,7 @@ stderr.
 - `captions(v video_stream, cues cue[] DEFAULT NULL, cues2 cue[] DEFAULT
   NULL, port number DEFAULT NULL, prefix text DEFAULT NULL, prefix2 text
   DEFAULT NULL, roll_up number DEFAULT 2, channel number DEFAULT 1,
-  wait_s number DEFAULT 5)` returns `packets`: `v`'s own packets with
+  wait_s number DEFAULT 0)` returns `packets`: `v`'s own packets with
   CEA-608 captions in them.
 
 ## Building

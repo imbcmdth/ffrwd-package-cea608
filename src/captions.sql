@@ -42,12 +42,12 @@
 --   ) TO 'captioned.mp4'
 --
 -- A frame waits for the rows of its time at most `wait_s` seconds of the
--- stream past it, 5 by default, then goes out with the rows in hand: a
--- producer that stalls does not hold the picture. 5 s covers a text track
--- read back with ffrwd/moq's `subscribe`, which runs up to 4 s behind its
--- picture. 0 waits however long the rows take, which a file captioned from
--- a producer slower than its picture wants, whisper's 30-second windows
--- for one. A row more than 10 s behind the frame last captioned is
+-- stream past it, then goes out with the rows in hand, so a producer that
+-- stalls does not hold the picture. 0, the default, waits however long the
+-- rows take, which a file captioned from a producer slower than its
+-- picture wants, whisper's 30-second windows for one. 5 s covers a text
+-- track read back with ffrwd/moq's `subscribe`, which runs up to 4 s
+-- behind its picture. A row more than 10 s behind the frame last captioned is
 -- dropped, and so is row text that would wait behind 10 s of captions
 -- already queued.
 --
@@ -75,6 +75,6 @@ CREATE FUNCTION captions(v video_stream,
                          prefix2 text DEFAULT NULL,
                          roll_up number DEFAULT 2,
                          channel number DEFAULT 1,
-                         wait_s number DEFAULT 5)
+                         wait_s number DEFAULT 0)
 RETURNS packets
   AS 'target/wasm32-wasip2/release/captions.wasm', 'captions' LANGUAGE wasm;
